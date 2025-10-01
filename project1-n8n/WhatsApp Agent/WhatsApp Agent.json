@@ -1,0 +1,676 @@
+{
+  "name": "WhatsApp Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ],
+        "options": {}
+      },
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -176
+      ],
+      "id": "23c69687-d8ba-4bd3-8823-c73b94abf41b",
+      "name": "WhatsApp Trigger",
+      "webhookId": "7df6c423-a70e-4553-837f-d4acc6fd4681",
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "0y3QHaQzLWonb9Xh",
+          "name": "WhatsApp OAuth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=User Message: {{ $json.messages[0].text.body }}\n",
+        "options": {
+          "systemMessage": "=You are a super-friendly, witty WhatsApp assistant! Your prime directive: Make the user smile with every interaction, while providing helpful info delivered with charm, enthusiasm, and playful banter. Emojis, jokes, and clever wordplay are encouraged!\n\nMemory & Logging: Every user message—regardless of content—must be logged to the Chat DB Google Sheet before taking any further action. Store the phone number, timestamp, context, and body for every turn, ensuring perfect recall.\n\nContextual Awareness: If a user asks about previous conversations, orders, or info (\"Did I order X?\", \"What did I ask last week?\"), instantly fetch, reference, and quote from the Chat DB. Always add fun commentary or echoes for personality! If context is unclear, always review recent messages before replying. Never let the user feel you're clueless—refer to the Chat DB whenever needed to maintain continuity.\n\nOrder & Product Handling: Use the Products Google Sheet for listing products/items, splitting them by \"Available\" and \"Not Available.\" Provide each item's PID, Name, Price, and details with lively commentary and emojis. When updating items/orders, use the appropriate Google Sheets node, and confirm the result matches the user's request. When removing orders, perform the correct sheet deletion and always ask for a playful confirmation (\"You sure you want to break up with this order?\").\n\nStyle Guide: Maintain accuracy above all. Your tone must be playful, energetic, positive, and never robotic. Keep answers direct and lively; snip lengthy details for clarity. Always be unwaveringly supportive, energetic, and fun.\n\nConversational Steps:\n\nLog message to Chat DB (memory entry).\n\nRetrieve chat memory/context if needed.\n\nFulfill the user's main request (list, update, delete, inform, etc.).\n\nRespond with a smile, charm, and personality.\n\nGreeting Protocol: When greeting, treat the user like a favorite celebrity (\"Hey superstar!\"). For return visitors, playfully tease with witty remarks.\n\n**Never miss a detail. Never miss a word. Maintain complete conversational memory, accuracy, and a joyful user experience with every message!"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        256,
+        -176
+      ],
+      "id": "70321d84-b85d-4e44-95ad-4b2d1f847e3d",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        224,
+        48
+      ],
+      "id": "41d2b6fd-6b2e-4947-9de1-039582bd91eb",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "wZUsaamnZP5Wy7Ut",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "List",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        816,
+        160
+      ],
+      "id": "c1dee422-31f8-456c-bf1b-91d2df46ae56",
+      "name": "Get row(s) in sheet in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xSM4vax04E4jzcJR",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "=https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 432305293,
+          "mode": "list",
+          "cachedResultName": "Orders",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit#gid=432305293"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Name', ``, 'string') }}",
+            "Date": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Date', ``, 'string') }}",
+            "PID": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('PID', ``, 'string') }}",
+            "Product": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Product', ``, 'string') }}",
+            "Status": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Status', ``, 'string') }}"
+          },
+          "matchingColumns": [
+            "PID"
+          ],
+          "schema": [
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "PID",
+              "displayName": "PID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Product",
+              "displayName": "Product",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        992,
+        160
+      ],
+      "id": "173c96ed-1688-4169-bd91-ec90922651fc",
+      "name": "Append or update row in sheet in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xSM4vax04E4jzcJR",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 432305293,
+          "mode": "list",
+          "cachedResultName": "Orders",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit#gid=432305293"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1152,
+        160
+      ],
+      "id": "a3982d3f-8cc3-45ae-9b53-aa3d0685715a",
+      "name": "Orders sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xSM4vax04E4jzcJR",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit?gid=432305293#gid=432305293",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "List",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": 0,
+            "Product": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Product__using_to_match_', ``, 'string') }}",
+            "PID": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('PID', ``, 'string') }}",
+            "Availability": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Availability', ``, 'string') }}",
+            "Cost": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Cost', ``, 'string') }}"
+          },
+          "matchingColumns": [
+            "Product"
+          ],
+          "schema": [
+            {
+              "id": "PID",
+              "displayName": "PID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Product",
+              "displayName": "Product",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Availability",
+              "displayName": "Availability",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Cost",
+              "displayName": "Cost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1296,
+        160
+      ],
+      "id": "3ef92f57-860e-4931-8b34-f3109f01caed",
+      "name": "Update row in sheet in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xSM4vax04E4jzcJR",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit?gid=432305293#gid=432305293",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 432305293,
+          "mode": "list",
+          "cachedResultName": "Orders",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit#gid=432305293"
+        },
+        "startIndex": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start_Row_Number', ``, 'number') }}",
+        "numberToDelete": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Number_of_Rows_to_Delete', ``, 'number') }}"
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1456,
+        160
+      ],
+      "id": "b0bc34d2-2a56-463d-9b05-4eb7077972fc",
+      "name": "Delete rows or columns from sheet in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xSM4vax04E4jzcJR",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "=//Whatsapp User phone number id\n{{ $json.metadata.phone_number_id }}\n//Phone number\n{{ $json.contacts[0].wa_id }}\n\n{{ $json.messages[0].text.body }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        352,
+        48
+      ],
+      "id": "d34dd3de-1a89-491f-9851-ce373316dca9",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit?gid=731383016#gid=731383016",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 731383016,
+          "mode": "list",
+          "cachedResultName": "Chat DB",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit#gid=731383016"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        832,
+        -352
+      ],
+      "id": "f1d7d814-dc14-47aa-97cf-20eb5d4631d1",
+      "name": "DB retrival",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xSM4vax04E4jzcJR",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "774535632418483",
+        "recipientPhoneNumber": "+91 7780645727",
+        "textBody": "={{ $json.output }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        1456,
+        -176
+      ],
+      "id": "2a6e4ed9-ed55-4f13-aabb-fd6c7a88b34a",
+      "name": "Send message",
+      "webhookId": "77b51be0-bdbd-4c0f-af9e-35f063178b5d",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "DMzX8XWCFLasvAN3",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit?gid=731383016#gid=731383016",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 731383016,
+          "mode": "list",
+          "cachedResultName": "Chat DB",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit#gid=731383016"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamps": "={{ $now }}",
+            "Phone id": "={{ $json.metadata.phone_number_id }}",
+            "Chat Body": "={{ $json.messages[0].text.body }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Phone id",
+              "displayName": "Phone id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Timestamps",
+              "displayName": "Timestamps",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Chat Body",
+              "displayName": "Chat Body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        960,
+        -352
+      ],
+      "id": "f3fa79db-36ad-4af1-b5e9-74890c58721c",
+      "name": "DB Entry",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xSM4vax04E4jzcJR",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit?gid=731383016#gid=731383016",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 731383016,
+          "mode": "list",
+          "cachedResultName": "Chat DB",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1O-k5MP8HfCQumoxLIdbDLwyJm4YhLQYRW2uvBwDbrPE/edit#gid=731383016"
+        },
+        "clear": "specificRange",
+        "range": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Range', ``, 'string') }}"
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1104,
+        -352
+      ],
+      "id": "f2708735-695f-4711-9575-b9539a5e542c",
+      "name": "DB Shredder",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xSM4vax04E4jzcJR",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet in Google Sheets": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet in Google Sheets": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Orders sheet": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update row in sheet in Google Sheets": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete rows or columns from sheet in Google Sheets": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB retrival": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB Entry": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB Shredder": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b5150607-76bd-423d-b28f-7cf573997b8b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "920ebc62b0f57b436402530be529d8af597d0d37d23eb4f3fa86ed6ac9a6982c"
+  },
+  "id": "gaE5gkiPCMguIr7o",
+  "tags": []
+}
