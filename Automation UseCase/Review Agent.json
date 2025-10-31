@@ -1,0 +1,2135 @@
+{
+  "name": "Review Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "input",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -544,
+        -2060
+      ],
+      "id": "eedfc209-ac91-43f1-9e4e-b291f5eee8cc",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "operation": "Run actor and get dataset",
+        "actorId": {
+          "__rl": true,
+          "value": "R8WeJwLuzLZ6g4Bkk",
+          "mode": "list",
+          "cachedResultName": "Amazon Reviews Scraper (junglee/amazon-reviews-scraper)",
+          "cachedResultUrl": "https://console.apify.com/actors/R8WeJwLuzLZ6g4Bkk/input"
+        },
+        "customBody": "={\n    \"deduplicateRedirectedAsins\": true,\n    \"filterByRatings\": [\n        \"allStars\"\n    ],\n    \"includeGdprSensitive\": false,\n    \"maxReviews\": 100,\n    \"productUrls\": [\n        {\n            \"url\": \"{{ $('WhatsApp Trigger').item.json.messages[0].text.body.trim() }}\"\n        }\n    ],\n    \"reviewsAlwaysSaveCategoryData\": false,\n    \"reviewsUseProductVariantFilter\": false,\n    \"scrapeProductDetails\": false\n}"
+      },
+      "type": "@apify/n8n-nodes-apify.apify",
+      "typeVersion": 1,
+      "position": [
+        -768,
+        -2184
+      ],
+      "id": "87b8fde8-3355-4c37-b636-46193c12498c",
+      "name": "Review Scraper",
+      "credentials": {
+        "apifyApi": {
+          "id": "OqILxhg8XllJb3vL",
+          "name": "Apify account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.messages[0].text.body }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,/;q=0.8"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.9"
+            },
+            {
+              "name": "Accept-Encoding",
+              "value": "gzip, deflate, br"
+            },
+            {
+              "name": "Connection",
+              "value": "keep-alive"
+            },
+            {
+              "name": "Referer",
+              "value": "https://www.google.com/"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -992,
+        -1964
+      ],
+      "id": "294a4ddd-146b-4a3a-924e-a816212cd8d8",
+      "name": "Product Page Scraper"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const payload = item.json;\n\n  // Extract HTML safely\n  const html =\n    typeof payload === \"string\"\n      ? payload\n      : payload?.body ?? payload?.data ?? payload?.html ?? \"\";\n\n  if (typeof html !== \"string\" || !html) {\n    return {\n      json: {\n        title: null,\n        error: \"No HTML string found from previous node\",\n        debugKeys: Object.keys(payload || {})\n      }\n    };\n  }\n\n  // ---------------------------\n  // TITLE EXTRACTION\n  // ---------------------------\n  const span = html.match(/<span id=\"productTitle\"[^>]*>([\\s\\S]*?)<\\/span>/i);\n  let title = span ? span[1].replace(/\\s+/g, \" \").trim() : null;\n\n  if (!title) {\n    const t = html.match(/<title>([\\s\\S]*?)<\\/title>/i);\n    if (t) {\n      title = t[1]\n        .replace(/Amazon\\.\\w+:\\s*/i, \"\")\n        .replace(/\\s+\\|.*$/, \"\")\n        .trim();\n    }\n  }\n\n  if (!title && payload?.request?.url) {\n    const beforeDp = payload.request.url.split(\"/dp/\")[0];\n    const slug = beforeDp.split(\"/\").filter(Boolean).pop();\n    if (slug) title = slug.replace(/-/g, \" \").trim();\n  }\n\n  // ---------------------------\n  // DESCRIPTION EXTRACTION\n  // ---------------------------\n  let description = null;\n  // Try several known Amazon selectors\n  const descMatch =\n    html.match(/<div id=\"productDescription\"[^>]*>([\\s\\S]*?)<\\/div>/i) ||\n    html.match(/<div id=\"feature-bullets\"[^>]*>([\\s\\S]*?)<\\/div>/i) ||\n    html.match(/<div id=\"bookDescription_feature_div\"[^>]*>([\\s\\S]*?)<\\/div>/i);\n\n  if (descMatch) {\n    // Strip HTML tags and clean text\n    description = descMatch[1]\n      .replace(/<[^>]+>/g, \" \")\n      .replace(/\\s+/g, \" \")\n      .trim();\n  }\n\n  // ---------------------------\n  // SPECIFICATIONS EXTRACTION\n  // ---------------------------\n  let specs = [];\n  // Capture specification tables or bullet lists\n  const specTable = html.match(\n    /<table[^>]*id=\"productDetails_techSpec_section_1\"[^>]*>([\\s\\S]*?)<\\/table>/i\n  );\n  const detailBullets = html.match(\n    /<div id=\"detailBullets_feature_div\"[^>]*>([\\s\\S]*?)<\\/div>/i\n  );\n\n  let rawSpec = \"\";\n  if (specTable) rawSpec = specTable[1];\n  else if (detailBullets) rawSpec = detailBullets[1];\n\n  if (rawSpec) {\n    // Extract key-value pairs from table rows or bullet points\n    const rows = [...rawSpec.matchAll(/<tr[^>]*>([\\s\\S]*?)<\\/tr>/gi)];\n    if (rows.length) {\n      specs = rows.map(r => {\n        const cells = [...r[1].matchAll(/<td[^>]*>([\\s\\S]*?)<\\/td>/gi)];\n        if (cells.length >= 2) {\n          const key = cells[0][1].replace(/<[^>]+>/g, \"\").trim();\n          const val = cells[1][1].replace(/<[^>]+>/g, \"\").trim();\n          return `${key}: ${val}`;\n        }\n        return r[1].replace(/<[^>]+>/g, \"\").trim();\n      });\n    } else {\n      const bullets = [...rawSpec.matchAll(/<li[^>]*>([\\s\\S]*?)<\\/li>/gi)];\n      specs = bullets.map(b => b[1].replace(/<[^>]+>/g, \"\").trim());\n    }\n  }\n\n  return {\n    json: {\n      title,\n      description,\n      specifications: specs,\n      input: $('WhatsApp Trigger').first().json.messages[0].text.body\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        -1964
+      ],
+      "id": "a0e5a501-2cc9-4942-ab0c-27bba2e6175a",
+      "name": "Characteristics Fetcher"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "481ed1e0-af34-4a7b-adfa-3047267deef7",
+              "name": "=reviewDescription",
+              "value": "={{$json.reviewDescription && $json.reviewDescription.trim()}}",
+              "type": "string"
+            },
+            {
+              "id": "74c2ada4-4e44-42b8-8e34-736f7125e391",
+              "name": "stars",
+              "value": "={{ $json.ratingScore }}",
+              "type": "string"
+            },
+            {
+              "id": "77acbd95-5df8-41bb-bfcf-5ae1d08fce88",
+              "name": "title",
+              "value": "={{ $json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "906d382c-6767-46bd-9351-dfa9f260590b",
+              "name": "URL",
+              "value": "={{ $('Characteristics Fetcher').item.json.input }}",
+              "type": "string"
+            },
+            {
+              "id": "3a101123-e141-409e-b7eb-057e056cc077",
+              "name": "Product Descreiption",
+              "value": "={{ $json.description }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -320,
+        -2060
+      ],
+      "id": "87c48966-bd24-4fa0-bced-cf76736c3325",
+      "name": "Sets info"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst product =\n  items.find(i => i.json.product)?.json.product ||\n  \"Unknown Product\";\n\n// keep only non-empty descriptions\nconst reviews = items\n  .map(i => (i.json.reviewDescription || \"\").trim())\n  .filter(Boolean);\n\n// compute basic stats (optional but useful)\nconst starVals = items.map(i => Number(i.json.stars || 0)).filter(n => !isNaN(n));\nconst avgStars = starVals.length ? (starVals.reduce((a,b)=>a+b,0) / starVals.length) : null;\n\nreturn [{\n  json: {\n    product: $input.first().json.title,\n    totalReviews: reviews.length,\n    avgStars,\n    url: $('Characteristics Fetcher').first().json.input,\n    ProductDescription: $input.first().json['Product Descreiption'],\n    // join with a clear separator so the model can see review boundaries\n    combinedReviews: reviews.join(\"\\n\\n---\\n\\n\")\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -2060
+      ],
+      "id": "82348e9a-79cb-48a6-a261-9eb0005fdf4e",
+      "name": "Combines Reviews"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.combinedReviews }}",
+        "options": {
+          "systemMessage": "=You are a neutral, helpful AI that writes product summaries only from:\n\nThe customer reviews I give you, and\n\nBasic competitor data you fetch (if reviews don’t mention competitors).\n\nYour workflow:\n\nLog to Google Sheets first\n\nAppend a new row using the provided Google Sheets tool.\n\nMap what you have to the sheet headers (product, avg rating, total reviews, key positives, key negatives, competitor, comparison note, etc.).\n\nDo NOT paste raw reviews — summarise recurring points (build, value, performance, service, packaging, defects, noise, delivery, etc.).\n\nIf you have competitor info, add it in the appropriate columns; leave unknowns blank.\n\nGet competitors\n\nLook in the reviews for named alternatives (“I chose this over…”, “better than…”) — use those first.\n\nIf none are mentioned, call the configured webhook / lookup to fetch 2–4 similar products in the same category/price band.\n\nFor each competitor, keep only high-level signals: value, reliability, ease of use, after-sales.\n\nDo not invent specs for competitors. If data is missing, say so.\n\nWrite the buying guide in Markdown with THIS exact structure:\n\n{{ $json.product }} — Should you buy it?\n\nOne-paragraph overview (120–180 words): Describe overall experience, quality, and value only from reviews.\n\nWho it’s best for:\n\n3–5 bullets (usage / buyer types).\n\nPros (from reviews):\n\n5 bullets, ≤ 12 words, only if multiple reviews support them.\n\nCons (from reviews):\n\n3–5 bullets, realistic, grounded in complaints.\n\nWorth noting:\n\n2–4 bullets for quirks (accessories, setup, delivery, software, after-sales).\n\nHow it compares to alternatives:\n\nFor each competitor:\n\ncompetitor_name: say “better/similar/weaker on” (value | ease | reliability | build) based on available data.\n\nIf not enough data: “Not enough review data to compare with competitor_name.”\n\nVerdict: 1 sentence, balanced, aligned to majority sentiment.\n\nInput context (do not change):\n\nProduct: {{ $json.product }}\nTotal reviews: {{ $json.totalReviews }}\nAverage star rating (from data): {{ $json.avgStars }}\n\nREVIEWS (verbatim, separated by ---):\n{{ $json.combinedReviews }}\n\nRules:\n\nUse ONLY what’s in reviews and fetched competitor info.\n\nIf reviews disagree, prefer the majority and mention minority views.\n\nNo marketing fluff, no invented specs, no “best in class” claims unless supported.\n\nAlways output all sections, even if some say “data limited”."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        -2060
+      ],
+      "id": "63a8e117-961a-45ff-bd2e-3838934124c7",
+      "name": "Reviewer"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ],
+        "options": {}
+      },
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1568,
+        -2156
+      ],
+      "id": "6caf6b7f-ba8e-4c44-8ec9-1ec82be029e4",
+      "name": "WhatsApp Trigger",
+      "webhookId": "02d24da5-1c50-43a5-a11f-cec708ac3e4c",
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "0y3QHaQzLWonb9Xh",
+          "name": "WhatsApp OAuth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "774535632418483",
+        "recipientPhoneNumber": "+917780645727",
+        "textBody": "={{ $json.output }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        624,
+        -2060
+      ],
+      "id": "f7f8a1e8-d90f-40b9-9d68-bb8378b5337a",
+      "name": "Send message",
+      "webhookId": "92269b05-325b-405c-81ae-14649ca9b995",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "DMzX8XWCFLasvAN3",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Product Title": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Product_Title', ``, 'string') }}",
+            "Product Url": "={{ $json.url }}",
+            "Product Description": "={{ $json.ProductDescription }}",
+            "Avg Rating": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Avg_Rating', ``, 'string') }}",
+            "Review Description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Review_Description', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Product Title",
+              "displayName": "Product Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Product Url",
+              "displayName": "Product Url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Product Description",
+              "displayName": "Product Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Avg Rating",
+              "displayName": "Avg Rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Review Description",
+              "displayName": "Review Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        416,
+        -1836
+      ],
+      "id": "f68fe44e-f175-4709-a06f-82ac2a3b2236",
+      "name": "Append row in sheet in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "qZxSUgvplwZzMaSI",
+          "name": "Review Agent Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "model-router",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAzureOpenAi",
+      "typeVersion": 1,
+      "position": [
+        144,
+        -1628
+      ],
+      "id": "057eaf72-b676-4d65-a57a-914546c646b6",
+      "name": "Azure OpenAI Chat Model",
+      "credentials": {
+        "azureOpenAiApi": {
+          "id": "bgN7pH9aqxp7f1cM",
+          "name": "Azure Open AI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rule": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b5c25c0b-3f8c-49ef-bfd0-82ede92ffd64",
+                    "leftValue": "1",
+                    "rightValue": "1",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.modelSelector",
+      "typeVersion": 1,
+      "position": [
+        128,
+        -1836
+      ],
+      "id": "091b0728-6504-426e-a2a4-83b75963435e",
+      "name": "Model Selector"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        272,
+        -1628
+      ],
+      "id": "81d66904-2d35-499a-b4ba-116b367b533f",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "p7dZktr8muVIY9BS",
+          "name": "Review Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "input",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -448,
+        -3488
+      ],
+      "id": "2650c1d5-0e97-4bdf-a76d-af8a13f6aa69",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "operation": "Run actor and get dataset",
+        "actorId": {
+          "__rl": true,
+          "value": "R8WeJwLuzLZ6g4Bkk",
+          "mode": "list",
+          "cachedResultName": "Amazon Reviews Scraper (junglee/amazon-reviews-scraper)",
+          "cachedResultUrl": "https://console.apify.com/actors/R8WeJwLuzLZ6g4Bkk/input"
+        },
+        "customBody": "={\n    \"deduplicateRedirectedAsins\": true,\n    \"filterByRatings\": [\n        \"allStars\"\n    ],\n    \"includeGdprSensitive\": false,\n    \"maxReviews\": 100,\n    \"productUrls\": [\n        {\n            \"url\": \"{{ $json['Product Url'].trim() }}\"\n        }\n    ],\n    \"reviewsAlwaysSaveCategoryData\": false,\n    \"reviewsUseProductVariantFilter\": false,\n    \"scrapeProductDetails\": false\n}",
+        "timeout": 180
+      },
+      "type": "@apify/n8n-nodes-apify.apify",
+      "typeVersion": 1,
+      "position": [
+        -672,
+        -3680
+      ],
+      "id": "09627e74-9943-4c44-b033-a9fe2692db77",
+      "name": "Review Scraper1",
+      "credentials": {
+        "apifyApi": {
+          "id": "OqILxhg8XllJb3vL",
+          "name": "Apify account 2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json['Product Url'].trim() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,/;q=0.8"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.9"
+            },
+            {
+              "name": "Accept-Encoding",
+              "value": "gzip, deflate, br"
+            },
+            {
+              "name": "Connection",
+              "value": "keep-alive"
+            },
+            {
+              "name": "Referer",
+              "value": "https://www.google.com/"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -896,
+        -3436
+      ],
+      "id": "513ed0aa-56ec-4f24-9a3e-c690eef89acb",
+      "name": "Product Page Scraper1"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const payload = item.json;\n\n  // Extract HTML safely\n  const html =\n    typeof payload === \"string\"\n      ? payload\n      : payload?.body ?? payload?.data ?? payload?.html ?? \"\";\n\n  if (typeof html !== \"string\" || !html) {\n    return {\n      json: {\n        title: null,\n        error: \"No HTML string found from previous node\",\n        debugKeys: Object.keys(payload || {})\n      }\n    };\n  }\n\n  // ---------------------------\n  // TITLE EXTRACTION\n  // ---------------------------\n  const span = html.match(/<span id=\"productTitle\"[^>]*>([\\s\\S]*?)<\\/span>/i);\n  let title = span ? span[1].replace(/\\s+/g, \" \").trim() : null;\n\n  if (!title) {\n    const t = html.match(/<title>([\\s\\S]*?)<\\/title>/i);\n    if (t) {\n      title = t[1]\n        .replace(/Amazon\\.\\w+:\\s*/i, \"\")\n        .replace(/\\s+\\|.*$/, \"\")\n        .trim();\n    }\n  }\n\n  if (!title && payload?.request?.url) {\n    const beforeDp = payload.request.url.split(\"/dp/\")[0];\n    const slug = beforeDp.split(\"/\").filter(Boolean).pop();\n    if (slug) title = slug.replace(/-/g, \" \").trim();\n  }\n\n  // ---------------------------\n  // DESCRIPTION EXTRACTION\n  // ---------------------------\n  let description = null;\n  // Try several known Amazon selectors\n  const descMatch =\n    html.match(/<div id=\"productDescription\"[^>]*>([\\s\\S]*?)<\\/div>/i) ||\n    html.match(/<div id=\"feature-bullets\"[^>]*>([\\s\\S]*?)<\\/div>/i) ||\n    html.match(/<div id=\"bookDescription_feature_div\"[^>]*>([\\s\\S]*?)<\\/div>/i);\n\n  if (descMatch) {\n    // Strip HTML tags and clean text\n    description = descMatch[1]\n      .replace(/<[^>]+>/g, \" \")\n      .replace(/\\s+/g, \" \")\n      .trim();\n  }\n\n  // ---------------------------\n  // SPECIFICATIONS EXTRACTION\n  // ---------------------------\n  let specs = [];\n  // Capture specification tables or bullet lists\n  const specTable = html.match(\n    /<table[^>]*id=\"productDetails_techSpec_section_1\"[^>]*>([\\s\\S]*?)<\\/table>/i\n  );\n  const detailBullets = html.match(\n    /<div id=\"detailBullets_feature_div\"[^>]*>([\\s\\S]*?)<\\/div>/i\n  );\n\n  let rawSpec = \"\";\n  if (specTable) rawSpec = specTable[1];\n  else if (detailBullets) rawSpec = detailBullets[1];\n\n  if (rawSpec) {\n    // Extract key-value pairs from table rows or bullet points\n    const rows = [...rawSpec.matchAll(/<tr[^>]*>([\\s\\S]*?)<\\/tr>/gi)];\n    if (rows.length) {\n      specs = rows.map(r => {\n        const cells = [...r[1].matchAll(/<td[^>]*>([\\s\\S]*?)<\\/td>/gi)];\n        if (cells.length >= 2) {\n          const key = cells[0][1].replace(/<[^>]+>/g, \"\").trim();\n          const val = cells[1][1].replace(/<[^>]+>/g, \"\").trim();\n          return `${key}: ${val}`;\n        }\n        return r[1].replace(/<[^>]+>/g, \"\").trim();\n      });\n    } else {\n      const bullets = [...rawSpec.matchAll(/<li[^>]*>([\\s\\S]*?)<\\/li>/gi)];\n      specs = bullets.map(b => b[1].replace(/<[^>]+>/g, \"\").trim());\n    }\n  }\n\n  return {\n    json: {\n      title,\n      description,\n      specifications: specs,\n      input: $('Get row(s) in sheet').first().json['Product Url']\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        -3436
+      ],
+      "id": "1121ac6f-9c2b-48fa-9c20-b0c0305f4acb",
+      "name": "Characteristics Fetcher1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "481ed1e0-af34-4a7b-adfa-3047267deef7",
+              "name": "=reviewDescription",
+              "value": "={{$json.reviewDescription && $json.reviewDescription.trim()}}",
+              "type": "string"
+            },
+            {
+              "id": "74c2ada4-4e44-42b8-8e34-736f7125e391",
+              "name": "stars",
+              "value": "={{ $json.ratingScore }}",
+              "type": "string"
+            },
+            {
+              "id": "77acbd95-5df8-41bb-bfcf-5ae1d08fce88",
+              "name": "title",
+              "value": "={{ $json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "906d382c-6767-46bd-9351-dfa9f260590b",
+              "name": "URL",
+              "value": "={{ $('Characteristics Fetcher1').item.json.input }}",
+              "type": "string"
+            },
+            {
+              "id": "3a101123-e141-409e-b7eb-057e056cc077",
+              "name": "Product Descreiption",
+              "value": "={{ $json.description }}",
+              "type": "string"
+            },
+            {
+              "id": "519eb0b0-a7cc-49ec-94fe-293dc9adbc97",
+              "name": "specs",
+              "value": "={{ $json.specifications }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        -3488
+      ],
+      "id": "e2ed5bbb-a39c-42b0-b104-797c9050ce1a",
+      "name": "Sets info1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst product =\n  items.find(i => i.json.product)?.json.product ||\n  \"Unknown Product\";\n\n// keep only non-empty descriptions\nconst reviews = items\n  .map(i => (i.json.reviewDescription || \"\").trim())\n  .filter(Boolean);\n\n// compute basic stats (optional but useful)\nconst starVals = items.map(i => Number(i.json.stars || 0)).filter(n => !isNaN(n));\nconst avgStars = starVals.length ? (starVals.reduce((a,b)=>a+b,0) / starVals.length) : null;\n\nreturn [{\n  json: {\n    product: $input.first().json.title,\n    totalReviews: reviews.length,\n    avgStars,\n    url: $('Characteristics Fetcher1').first().json.input,\n    ProductDescription: $input.first().json['Product Descreiption'],\n    // join with a clear separator so the model can see review boundaries\n    combinedReviews: reviews.join(\"\\n\\n---\\n\\n\"),\n    specs: $input.first().json.specs\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -3488
+      ],
+      "id": "9ed903c9-e8fc-4143-9599-7625539dc3bf",
+      "name": "Combines Reviews1"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "774535632418483",
+        "recipientPhoneNumber": "+917780645727",
+        "textBody": "Error running node 'Review Scraper'",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        -448,
+        -3728
+      ],
+      "id": "e1230255-9abd-4a22-80ec-acaff3f1f6bb",
+      "name": "Error Message1",
+      "webhookId": "dd5d7742-fb24-4f0e-9797-04bd6afeb31a",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "DMzX8XWCFLasvAN3",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Product:\n{{ $json.product }}\n\nProduct Description:\n{{ $json.ProductDescription }}\n\nCombined Reviews:\n{{ $json.combinedReviews }}\n\nSpecifications of the Product:\n{{ $json.specs }}",
+        "options": {
+          "systemMessage": "=You are a neutral, helpful AI that writes product summaries only from:\n\nThe customer reviews I give you, and\n\nBasic competitor data you fetch (if reviews don’t mention competitors).\n\nYour workflow:\n\nLog to Google Sheets first\n\nAppend a new row using the provided Google Sheets tool.\n\nMap what you have to the sheet headers (product, avg rating, total reviews, key positives, key negatives, competitor, comparison note, etc.).\n\nDo NOT paste raw reviews — summarise recurring points (build, value, performance, service, packaging, defects, noise, delivery, etc.).\n\nIf you have competitor info, add it in the appropriate columns; leave unknowns blank.\n\nGet competitors\n\nLook in the reviews for named alternatives (“I chose this over…”, “better than…”) — use those first.\n\nIf none are mentioned, call the configured webhook / lookup to fetch 2–4 similar products in the same category/price band.\n\nFor each competitor, keep only high-level signals: value, reliability, ease of use, after-sales.\n\nDo not invent specs for competitors. If data is missing, say so.\n\nWrite the buying guide in Markdown with THIS exact structure:\n\n{{ $json.product }} — Should you buy it?\n\nOne-paragraph overview (120–180 words): Describe overall experience, quality, and value only from reviews.\n\nWho it’s best for:\n\n3–5 bullets (usage / buyer types).\n\nPros (from reviews):\n\n5 bullets, ≤ 12 words, only if multiple reviews support them.\n\nCons (from reviews):\n\n3–5 bullets, realistic, grounded in complaints.\n\nWorth noting:\n\n2–4 bullets for quirks (accessories, setup, delivery, software, after-sales).\n\nHow it compares to alternatives:\n\nFor each competitor:\n\ncompetitor_name: say “better/similar/weaker on” (value | ease | reliability | build) based on available data.\n\nIf not enough data: “Not enough review data to compare with competitor_name.”\n\nVerdict: 1 sentence, balanced, aligned to majority sentiment.\n\nInput context (do not change):\n\nProduct: {{ $json.product }}\nTotal reviews: {{ $json.totalReviews }}\nAverage star rating (from data): {{ $json.avgStars }}\n\nREVIEWS (verbatim, separated by ---):\n{{ $json.combinedReviews }}\n\nRules:\n\nUse ONLY what’s in reviews and fetched competitor info.\n\nIf reviews disagree, prefer the majority and mention minority views.\n\nNo marketing fluff, no invented specs, no “best in class” claims unless supported.\n\nAlways output all sections, even if some say “data limited”."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        -3488
+      ],
+      "id": "02bc9f62-08bd-4ccb-87aa-8ae0c54f0ab1",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "o4-mini",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAzureOpenAi",
+      "typeVersion": 1,
+      "position": [
+        456,
+        -3264
+      ],
+      "id": "0212ad03-e6a0-47f9-89cd-e9140770a9b9",
+      "name": "Azure OpenAI Chat Model1",
+      "credentials": {
+        "azureOpenAiApi": {
+          "id": "bgN7pH9aqxp7f1cM",
+          "name": "Azure Open AI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit?gid=1238187015#gid=1238187015",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1238187015,
+          "mode": "list",
+          "cachedResultName": "Review Request Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit#gid=1238187015"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Product Url": "={{ $json.url }}",
+            "Product Title": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Product_Title', ``, 'string') }}",
+            "Review Description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Review_Description', ``, 'string') }}",
+            "Output": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Output', ``, 'string') }}"
+          },
+          "matchingColumns": [
+            "Product Url"
+          ],
+          "schema": [
+            {
+              "id": "Product Url",
+              "displayName": "Product Url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Product Title",
+              "displayName": "Product Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Review Description",
+              "displayName": "Review Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Output",
+              "displayName": "Output",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "locationDefine": {
+            "values": {
+              "firstDataRow": "=2"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        584,
+        -3264
+      ],
+      "id": "902ef16d-5633-4b05-9303-fabb64f441a6",
+      "name": "Update row in sheet in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "qZxSUgvplwZzMaSI",
+          "name": "Review Agent Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "reviewDescription",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -224,
+        -3488
+      ],
+      "id": "42465651-b393-4dca-ba5e-b612e531373a",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        800,
+        -3364
+      ],
+      "id": "aa2839bd-408c-4205-b98d-f0d5d8819299",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit?gid=1238187015#gid=1238187015",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1238187015,
+          "mode": "list",
+          "cachedResultName": "Review Request Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit#gid=1238187015"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Output",
+              "lookupValue": "="
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1120,
+        -3436
+      ],
+      "id": "93af5722-322c-41ce-a285-36393379a12d",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "qZxSUgvplwZzMaSI",
+          "name": "Review Agent Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k",
+          "mode": "list",
+          "cachedResultName": "Review Agent n8n",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1238187015,
+          "mode": "list",
+          "cachedResultName": "Review Request Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit#gid=1238187015"
+        },
+        "includeInOutput": "old",
+        "options": {
+          "columnsToWatch": [
+            "Product Url"
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1568,
+        -3436
+      ],
+      "id": "d31ecc3f-5018-4520-adbf-eff4aeeab11a",
+      "name": "Google Sheets Trigger",
+      "credentials": {
+        "googleSheetsTriggerOAuth2Api": {
+          "id": "1MhNI8TRKcSq7U2j",
+          "name": "Google Sheets Trigger account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "01863c1a-5a9f-4099-b384-3065f93722b4",
+              "leftValue": "={{ $json['Product Title'] }}",
+              "rightValue": "=",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        -1344,
+        -3436
+      ],
+      "id": "cb469dd0-35eb-4beb-9ba4-108219fc9f1a",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "input",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -544,
+        -2816
+      ],
+      "id": "11140882-a835-4f9a-af90-dd665cf579ae",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "operation": "Run actor and get dataset",
+        "actorId": {
+          "__rl": true,
+          "value": "R8WeJwLuzLZ6g4Bkk",
+          "mode": "list",
+          "cachedResultName": "Amazon Reviews Scraper (junglee/amazon-reviews-scraper)",
+          "cachedResultUrl": "https://console.apify.com/actors/R8WeJwLuzLZ6g4Bkk/input"
+        },
+        "customBody": "={\n    \"deduplicateRedirectedAsins\": true,\n    \"filterByRatings\": [\n        \"allStars\"\n    ],\n    \"includeGdprSensitive\": false,\n    \"maxReviews\": 100,\n    \"productUrls\": [\n        {\n            \"url\": \"{{ $('Webhook1').item.json.body.url }}\"\n        }\n    ],\n    \"reviewsAlwaysSaveCategoryData\": false,\n    \"reviewsUseProductVariantFilter\": false,\n    \"scrapeProductDetails\": false\n}"
+      },
+      "type": "@apify/n8n-nodes-apify.apify",
+      "typeVersion": 1,
+      "position": [
+        -768,
+        -2940
+      ],
+      "id": "5022a014-24f3-47a2-8865-4ae847427f49",
+      "name": "Review Scraper2",
+      "credentials": {
+        "apifyApi": {
+          "id": "OqILxhg8XllJb3vL",
+          "name": "Apify account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.body.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,/;q=0.8"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.9"
+            },
+            {
+              "name": "Accept-Encoding",
+              "value": "gzip, deflate, br"
+            },
+            {
+              "name": "Connection",
+              "value": "keep-alive"
+            },
+            {
+              "name": "Referer",
+              "value": "https://www.google.com/"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -992,
+        -2720
+      ],
+      "id": "4377bc90-bd5c-455e-8af2-c0a61f8fa203",
+      "name": "Product Page Scraper2"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const payload = item.json;\n\n  // Extract HTML safely\n  const html =\n    typeof payload === \"string\"\n      ? payload\n      : payload?.body ?? payload?.data ?? payload?.html ?? \"\";\n\n  if (typeof html !== \"string\" || !html) {\n    return {\n      json: {\n        title: null,\n        error: \"No HTML string found from previous node\",\n        debugKeys: Object.keys(payload || {})\n      }\n    };\n  }\n\n  // ---------------------------\n  // TITLE EXTRACTION\n  // ---------------------------\n  const span = html.match(/<span id=\"productTitle\"[^>]*>([\\s\\S]*?)<\\/span>/i);\n  let title = span ? span[1].replace(/\\s+/g, \" \").trim() : null;\n\n  if (!title) {\n    const t = html.match(/<title>([\\s\\S]*?)<\\/title>/i);\n    if (t) {\n      title = t[1]\n        .replace(/Amazon\\.\\w+:\\s*/i, \"\")\n        .replace(/\\s+\\|.*$/, \"\")\n        .trim();\n    }\n  }\n\n  if (!title && payload?.request?.url) {\n    const beforeDp = payload.request.url.split(\"/dp/\")[0];\n    const slug = beforeDp.split(\"/\").filter(Boolean).pop();\n    if (slug) title = slug.replace(/-/g, \" \").trim();\n  }\n\n  // ---------------------------\n  // DESCRIPTION EXTRACTION\n  // ---------------------------\n  let description = null;\n  // Try several known Amazon selectors\n  const descMatch =\n    html.match(/<div id=\"productDescription\"[^>]*>([\\s\\S]*?)<\\/div>/i) ||\n    html.match(/<div id=\"feature-bullets\"[^>]*>([\\s\\S]*?)<\\/div>/i) ||\n    html.match(/<div id=\"bookDescription_feature_div\"[^>]*>([\\s\\S]*?)<\\/div>/i);\n\n  if (descMatch) {\n    // Strip HTML tags and clean text\n    description = descMatch[1]\n      .replace(/<[^>]+>/g, \" \")\n      .replace(/\\s+/g, \" \")\n      .trim();\n  }\n\n  // ---------------------------\n  // SPECIFICATIONS EXTRACTION\n  // ---------------------------\n  let specs = [];\n  // Capture specification tables or bullet lists\n  const specTable = html.match(\n    /<table[^>]*id=\"productDetails_techSpec_section_1\"[^>]*>([\\s\\S]*?)<\\/table>/i\n  );\n  const detailBullets = html.match(\n    /<div id=\"detailBullets_feature_div\"[^>]*>([\\s\\S]*?)<\\/div>/i\n  );\n\n  let rawSpec = \"\";\n  if (specTable) rawSpec = specTable[1];\n  else if (detailBullets) rawSpec = detailBullets[1];\n\n  if (rawSpec) {\n    // Extract key-value pairs from table rows or bullet points\n    const rows = [...rawSpec.matchAll(/<tr[^>]*>([\\s\\S]*?)<\\/tr>/gi)];\n    if (rows.length) {\n      specs = rows.map(r => {\n        const cells = [...r[1].matchAll(/<td[^>]*>([\\s\\S]*?)<\\/td>/gi)];\n        if (cells.length >= 2) {\n          const key = cells[0][1].replace(/<[^>]+>/g, \"\").trim();\n          const val = cells[1][1].replace(/<[^>]+>/g, \"\").trim();\n          return `${key}: ${val}`;\n        }\n        return r[1].replace(/<[^>]+>/g, \"\").trim();\n      });\n    } else {\n      const bullets = [...rawSpec.matchAll(/<li[^>]*>([\\s\\S]*?)<\\/li>/gi)];\n      specs = bullets.map(b => b[1].replace(/<[^>]+>/g, \"\").trim());\n    }\n  }\n\n  return {\n    json: {\n      title,\n      description,\n      specifications: specs,\n      input: $('Webhook1').first().json.body.url\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        -2720
+      ],
+      "id": "ae66caa3-69bc-4619-810d-d3a829457ea1",
+      "name": "Characteristics Fetcher2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "481ed1e0-af34-4a7b-adfa-3047267deef7",
+              "name": "=reviewDescription",
+              "value": "={{$json.reviewDescription && $json.reviewDescription.trim()}}",
+              "type": "string"
+            },
+            {
+              "id": "74c2ada4-4e44-42b8-8e34-736f7125e391",
+              "name": "stars",
+              "value": "={{ $json.ratingScore }}",
+              "type": "string"
+            },
+            {
+              "id": "77acbd95-5df8-41bb-bfcf-5ae1d08fce88",
+              "name": "title",
+              "value": "={{ $json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "906d382c-6767-46bd-9351-dfa9f260590b",
+              "name": "URL",
+              "value": "={{ $('Characteristics Fetcher2').item.json.input }}",
+              "type": "string"
+            },
+            {
+              "id": "3a101123-e141-409e-b7eb-057e056cc077",
+              "name": "Product Descreiption",
+              "value": "={{ $json.description }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -320,
+        -2816
+      ],
+      "id": "b67388fb-78c9-4bcd-861f-c07a6f39892c",
+      "name": "Sets info2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst product =\n  items.find(i => i.json.product)?.json.product ||\n  \"Unknown Product\";\n\n// keep only non-empty descriptions\nconst reviews = items\n  .map(i => (i.json.reviewDescription || \"\").trim())\n  .filter(Boolean);\n\n// compute basic stats (optional but useful)\nconst starVals = items.map(i => Number(i.json.stars || 0)).filter(n => !isNaN(n));\nconst avgStars = starVals.length ? (starVals.reduce((a,b)=>a+b,0) / starVals.length) : null;\n\nreturn [{\n  json: {\n    product: $input.first().json.title,\n    totalReviews: reviews.length,\n    avgStars,\n    url: $('Characteristics Fetcher2').first().json.input,\n    ProductDescription: $input.first().json['Product Descreiption'],\n    // join with a clear separator so the model can see review boundaries\n    combinedReviews: reviews.join(\"\\n\\n---\\n\\n\")\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -2816
+      ],
+      "id": "9b77f938-7892-42fa-9442-bffb47f025b9",
+      "name": "Combines Reviews2"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.combinedReviews }}",
+        "options": {
+          "systemMessage": "=You are a neutral, helpful AI that writes product summaries only from:\n\nThe customer reviews I give you, and\n\nBasic competitor data you fetch (if reviews don’t mention competitors).\n\nYour workflow:\n\nLog to Google Sheets first\n\nAppend a new row using the provided Google Sheets tool.\n\nMap what you have to the sheet headers (product, avg rating, total reviews, key positives, key negatives, competitor, comparison note, etc.).\n\nDo NOT paste raw reviews — summarise recurring points (build, value, performance, service, packaging, defects, noise, delivery, etc.).\n\nIf you have competitor info, add it in the appropriate columns; leave unknowns blank.\n\nGet competitors (Use attached Perplexity tool)\n\nLook in the reviews for named alternatives (“I chose this over…”, “better than…”) — use those first.\n\nIf none are mentioned, call the configured webhook / lookup to fetch 2–4 similar products in the same category/price band.\n\nFor each competitor, keep only high-level signals: value, reliability, ease of use, after-sales.\n\nDo not invent specs for competitors. If data is missing, say so.\n\nWrite the buying guide in Markdown with THIS exact structure:\n\n{{ $json.product }} — Should you buy it?\n\nOne-paragraph overview (120–180 words): Describe overall experience, quality, and value only from reviews.\n\nWho it’s best for:\n\n3–5 bullets (usage / buyer types).\n\nPros (from reviews):\n\n5 bullets, ≤ 12 words, only if multiple reviews support them.\n\nCons (from reviews):\n\n3–5 bullets, realistic, grounded in complaints.\n\nWorth noting:\n\n2–4 bullets for quirks (accessories, setup, delivery, software, after-sales).\n\nHow it compares to alternatives:\n\nFor each competitor:\n\ncompetitor_name: say “better/similar/weaker on” (value | ease | reliability | build) based on available data.\n\nIf not enough data: “Not enough review data to compare with competitor_name.”\n\nVerdict: 1 sentence, balanced, aligned to majority sentiment.\n\nInput context (do not change):\n\nProduct: {{ $json.product }}\nTotal reviews: {{ $json.totalReviews }}\nAverage star rating (from data): {{ $json.avgStars }}\n\nREVIEWS (verbatim, separated by ---):\n{{ $json.combinedReviews }}\n\nRules:\n\nUse ONLY what’s in reviews and fetched competitor info.\n\nIf reviews disagree, prefer the majority and mention minority views.\n\nNo marketing fluff, no invented specs, no “best in class” claims unless supported.\n\nAlways output all sections, even if some say “data limited”."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        344,
+        -3024
+      ],
+      "id": "4896d4db-bc4b-4a6f-9988-b4e6a1f11602",
+      "name": "Reviewer1"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1238187015,
+          "mode": "list",
+          "cachedResultName": "Review Request Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit#gid=1238187015"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Product Title": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Product_Title', ``, 'string') }}",
+            "Product Url": "={{ $('Webhook1').item.json.body.url }}",
+            "Review Description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Review_Description', ``, 'string') }}",
+            "Output": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Output', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Product Url",
+              "displayName": "Product Url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Product Title",
+              "displayName": "Product Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Review Description",
+              "displayName": "Review Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Output",
+              "displayName": "Output",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        416,
+        -2800
+      ],
+      "id": "75b4b00f-f784-4ddb-8712-bea61670d571",
+      "name": "Append row in sheet in Google Sheets1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "qZxSUgvplwZzMaSI",
+          "name": "Review Agent Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "model-router",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAzureOpenAi",
+      "typeVersion": 1,
+      "position": [
+        144,
+        -2592
+      ],
+      "id": "655b625b-d6db-4fa8-834e-ff1d9ad5b533",
+      "name": "Azure OpenAI Chat Model2",
+      "credentials": {
+        "azureOpenAiApi": {
+          "id": "bgN7pH9aqxp7f1cM",
+          "name": "Azure Open AI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rule": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b5c25c0b-3f8c-49ef-bfd0-82ede92ffd64",
+                    "leftValue": "1",
+                    "rightValue": "1",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.modelSelector",
+      "typeVersion": 1,
+      "position": [
+        128,
+        -2800
+      ],
+      "id": "b3361df5-9fd3-4502-a2e7-3b9cab0e233f",
+      "name": "Model Selector1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        272,
+        -2592
+      ],
+      "id": "819cb6dd-4a79-4529-a027-658fbbc84fe2",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "p7dZktr8muVIY9BS",
+          "name": "Review Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "959c0f18-2e3b-4b16-95f2-d3e6888031a5",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1568,
+        -2912
+      ],
+      "id": "f4557a5f-7c93-4ad6-bd7e-918d6f991f7c",
+      "name": "Webhook1",
+      "webhookId": "959c0f18-2e3b-4b16-95f2-d3e6888031a5"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        752,
+        -2816
+      ],
+      "id": "1c8cbb02-05d2-46b7-ae60-d0d55d3d8db1",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=product name:\n{{ $json.body.productName }}\nurl:\n{{ $json.body.url }}",
+        "options": {
+          "systemMessage": "=You are an assistant that checks if a product’s review summary already exists in a connected Google Sheet.\n\n### Workflow:\n1. Receive a product name or url as input:\n   Example:\n   {\n     \"url\": \"https://amazon.....\"\n     \"product\": \"BitDefender Antivirus Plus (Latest Version)\"\n   }\n\n2. Use the Google Sheets tool to search for this product name\n   - Look under the column that contains product names (e.g., “Product”, “Product Name”, or “Item”).\n   - Match should be case-insensitive and allow partial matches.\n\n3. If a match is found, return:\n     \"review\": {\n       \"output (column of that particular product in google sheet)\"\n     }\n\n4. If no match is found, return (dont return any other single letter or word except the specified one):\n   false\n\n### Rules:\n- Do NOT modify or add rows to the sheet — only search.\n- Do NOT infer or invent any data.\n- If multiple matches exist, return the one with the **closest text match**.\n- Normalize case and trim whitespace when matching.\n- Always output **pure JSON only**, with no markdown, explanations, or commentary.\n- Ensure your JSON output is syntactically valid and can be parsed by n8n.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -1344,
+        -3036
+      ],
+      "id": "54c5e358-0f19-4fd8-b5a7-635f50149d68",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "model": "model-router",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAzureOpenAi",
+      "typeVersion": 1,
+      "position": [
+        -1336,
+        -2812
+      ],
+      "id": "ffb94aeb-7d3b-4099-b2fd-40710421a8fe",
+      "name": "Azure OpenAI Chat Model3",
+      "credentials": {
+        "azureOpenAiApi": {
+          "id": "bgN7pH9aqxp7f1cM",
+          "name": "Azure Open AI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k",
+          "mode": "list",
+          "cachedResultName": "Review Agent n8n",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1238187015,
+          "mode": "list",
+          "cachedResultName": "Review Request Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit#gid=1238187015"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        -1208,
+        -2812
+      ],
+      "id": "0fc58082-fffb-4d80-93df-bb57cab3e1c7",
+      "name": "Get row(s) in sheet in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "qZxSUgvplwZzMaSI",
+          "name": "Review Agent Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1b9a9406-a485-465c-ada3-5a409d4b3458",
+              "leftValue": "={{ $json.output }}",
+              "rightValue": "=false",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -992,
+        -3036
+      ],
+      "id": "dea149a4-7473-48e6-b478-baa8bafd2393",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -768,
+        -3132
+      ],
+      "id": "21fd8c61-5c43-4d96-9e27-ea62a21bd095",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=url:\n{{ $json.messages[0].text.body }}",
+        "options": {
+          "systemMessage": "=You are an assistant that checks if a product’s review summary already exists in a connected Google Sheet.\n\n### Workflow:\n1. Receive a product name or url as input:\n   Example:\n   {\n     \"url\": \"https://amazon.....\"\n     \"product\": \"BitDefender Antivirus Plus (Latest Version)\"\n   }\n\n2. Use the Google Sheets tool to search for this product name\n   - Look under the column that contains product names (e.g., “Product”, “Product Name”, or “Item”).\n   - Match should be case-insensitive and allow partial matches.\n\n3. If a match is found, return:\n     \"review\": {\n       \"output (column of that particular product in google sheet)\"\n     }\n\n4. If no match is found, return:\n   false\n\n### Rules:\n- Do NOT modify or add rows to the sheet — only search.\n- Do NOT infer or invent any data.\n- If multiple matches exist, return the one with the **closest text match**.\n- Normalize case and trim whitespace when matching.\n- Always output **pure JSON only**, with no markdown, explanations, or commentary.\n- Ensure your JSON output is syntactically valid and can be parsed by n8n.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -1344,
+        -2280
+      ],
+      "id": "d5ce9e5b-f139-4712-9766-0a08ae5c0f96",
+      "name": "AI Agent2"
+    },
+    {
+      "parameters": {
+        "model": "model-router",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAzureOpenAi",
+      "typeVersion": 1,
+      "position": [
+        -1336,
+        -2056
+      ],
+      "id": "ed717d49-eb39-42a4-bf57-5e74a72051d4",
+      "name": "Azure OpenAI Chat Model4",
+      "credentials": {
+        "azureOpenAiApi": {
+          "id": "bgN7pH9aqxp7f1cM",
+          "name": "Azure Open AI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k",
+          "mode": "list",
+          "cachedResultName": "Review Agent n8n",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1238187015,
+          "mode": "list",
+          "cachedResultName": "Review Request Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1jY-8MkxAzytOF_My-Cfg8DwDH4yrNGY_mcQbQFAdR6k/edit#gid=1238187015"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        -1208,
+        -2056
+      ],
+      "id": "9c335f50-e554-49e7-8927-9d8384da18d8",
+      "name": "Get row(s) in sheet in Google Sheets1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "qZxSUgvplwZzMaSI",
+          "name": "Review Agent Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1b9a9406-a485-465c-ada3-5a409d4b3458",
+              "leftValue": "={{ $json.output }}",
+              "rightValue": "=false",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -992,
+        -2280
+      ],
+      "id": "ccd452bb-6127-4867-bdb9-6dfd4a5e168a",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "774535632418483",
+        "recipientPhoneNumber": "+917780645727",
+        "textBody": "={{ $json.choices[0].message.content }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        -544,
+        -2376
+      ],
+      "id": "d8414631-8b57-498e-bf42-d941548c639b",
+      "name": "Send message1",
+      "webhookId": "92269b05-325b-405c-81ae-14649ca9b995",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "DMzX8XWCFLasvAN3",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "messages": {
+          "message": [
+            {
+              "content": "={{ $json.output }}\n\n\"\"\"\"\nParse this output in a non json format and only send output."
+            }
+          ]
+        },
+        "options": {},
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-base.perplexity",
+      "typeVersion": 1,
+      "position": [
+        -768,
+        -2376
+      ],
+      "id": "76c42b57-8edc-4718-8b49-f4ae7fdd4802",
+      "name": "Message a model",
+      "credentials": {
+        "perplexityApi": {
+          "id": "B73X3ckEvMFHlZBK",
+          "name": "Perplexity account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "messages": {
+          "message": [
+            {
+              "content": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('message0_Text', ``, 'string') }}"
+            }
+          ]
+        },
+        "simplify": true,
+        "options": {},
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-base.perplexityTool",
+      "typeVersion": 1,
+      "position": [
+        544,
+        -2800
+      ],
+      "id": "8c9abb18-ba91-44fe-acb4-123d8e194606",
+      "name": "Message a model in Perplexity",
+      "credentials": {
+        "perplexityApi": {
+          "id": "B73X3ckEvMFHlZBK",
+          "name": "Perplexity account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Sets info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Scraper": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Product Page Scraper": {
+      "main": [
+        [
+          {
+            "node": "Characteristics Fetcher",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Characteristics Fetcher": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Sets info": {
+      "main": [
+        [
+          {
+            "node": "Combines Reviews",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combines Reviews": {
+      "main": [
+        [
+          {
+            "node": "Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Product Page Scraper",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Agent2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reviewer": {
+      "main": [
+        [
+          {
+            "node": "Send message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet in Google Sheets": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reviewer",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Azure OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Model Selector",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model Selector": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reviewer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Model Selector",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Scraper1": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Product Page Scraper1": {
+      "main": [
+        [
+          {
+            "node": "Characteristics Fetcher1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Characteristics Fetcher1": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Sets info1": {
+      "main": [
+        [
+          {
+            "node": "Combines Reviews1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combines Reviews1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Azure OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update row in sheet in Google Sheets": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Sets info1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Product Page Scraper1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Review Scraper1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets Trigger": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "Sets info2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Scraper2": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Product Page Scraper2": {
+      "main": [
+        [
+          {
+            "node": "Characteristics Fetcher2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Characteristics Fetcher2": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Sets info2": {
+      "main": [
+        [
+          {
+            "node": "Combines Reviews2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combines Reviews2": {
+      "main": [
+        [
+          {
+            "node": "Reviewer1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reviewer1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet in Google Sheets1": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reviewer1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Azure OpenAI Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Model Selector1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model Selector1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reviewer1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Model Selector1",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Product Page Scraper2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Azure OpenAI Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet in Google Sheets": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Review Scraper2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent2": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Azure OpenAI Chat Model4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet in Google Sheets1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Review Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Send message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model in Perplexity": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reviewer1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timezone": "Asia/Kolkata",
+    "errorWorkflow": "fJAYZ8BKJvckPl29",
+    "timeSavedPerExecution": 55
+  },
+  "versionId": "84d80ba4-a231-4c42-b676-f12c37bffa2d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "920ebc62b0f57b436402530be529d8af597d0d37d23eb4f3fa86ed6ac9a6982c"
+  },
+  "id": "fJAYZ8BKJvckPl29",
+  "tags": []
+}
