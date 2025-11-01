@@ -1,5 +1,9 @@
 # Review Agent Automation (WhatsApp + Google Sheets + Custom GPT)
 
+PPT Link: <a href="https://www.canva.com/design/DAG3Ya0ACM0/zDtGtGOc5uiJDPcphVSZpQ/edit?utm_content=DAG3Ya0ACM0&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton">Go to Canva</a>
+
+Video recordings are available in the repo...
+
 Automate end-to-end product review analysis, enrichment, and distribution from an e-commerce URL. This n8n workflow ingests a product URL, scrapes reviews and product details, combines signals, routes queries through a custom GPT, generates a buying-guide style summary in Markdown, and delivers output to Google Sheets and WhatsApp.
 
 - Three execution paths:
